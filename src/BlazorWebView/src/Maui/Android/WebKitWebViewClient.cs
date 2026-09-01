@@ -22,6 +22,17 @@ namespace Microsoft.AspNetCore.Components.WebView.Maui
 
 		private static readonly Uri AppOriginUri = new(AppOrigin);
 
+		private const ActivityFlags AllowedIntentFlags =
+			ActivityFlags.ExcludeStoppedPackages |
+			ActivityFlags.ClearTop |
+			ActivityFlags.SingleTop |
+			ActivityFlags.MatchExternal |
+			ActivityFlags.NewTask |
+			ActivityFlags.MultipleTask |
+			ActivityFlags.NewDocument |
+			ActivityFlags.RetainInRecents |
+			ActivityFlags.LaunchAdjacent;
+
 		private readonly BlazorWebViewHandler? _webViewHandler;
 		// Android does not store WebResourceResponse instances returned from ShouldInterceptRequest in Chromium's
 		// HTTP cache. Keep explicitly cacheable static responses in a bounded per-WebView cache instead.
@@ -63,7 +74,7 @@ namespace Microsoft.AspNetCore.Components.WebView.Maui
 				_webViewHandler.Logger.LaunchExternalBrowser(uri);
 				try
 				{
-					var intent = Intent.ParseUri(uri.OriginalString, IntentUriType.Scheme);
+					var intent = CreateIntentForExternalUri(uri);
 					_webViewHandler.Context.StartActivity(intent);
 				}
 				catch (URISyntaxException)
@@ -80,6 +91,24 @@ namespace Microsoft.AspNetCore.Components.WebView.Maui
 			}
 
 			return callbackArgs.UrlLoadingStrategy != UrlLoadingStrategy.OpenInWebView;
+		}
+
+		internal static Intent CreateIntentForExternalUri(Uri uri)
+		{
+			var intent = Intent.ParseUri(uri.OriginalString, IntentUriType.Scheme) ??
+				throw new URISyntaxException(uri.OriginalString, "Unable to create an intent from the URI.");
+
+			if (uri.Scheme.Equals("intent", StringComparison.OrdinalIgnoreCase) ||
+				uri.Scheme.Equals("android-app", StringComparison.OrdinalIgnoreCase))
+			{
+				// Keep structured intent URIs implicit and limited to handlers that accept browser navigation.
+				intent.AddCategory(Intent.CategoryBrowsable);
+				intent.SetComponent(null);
+				intent.Selector = null;
+				intent.SetFlags(intent.Flags & AllowedIntentFlags);
+			}
+
+			return intent;
 		}
 
 		public override WebResourceResponse? ShouldInterceptRequest(AWebView? view, IWebResourceRequest? request)
